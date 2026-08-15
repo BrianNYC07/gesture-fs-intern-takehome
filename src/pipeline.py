@@ -1,18 +1,5 @@
-"""
-Document Q&A Pipeline — YOUR WORK GOES HERE.
-
-The knowledge base (loading, chunking, vector store) is already built
-for you in knowledge_base.py. Your job is to:
-
-  1. Retrieve relevant chunks and generate an answer
-  2. Wire it up into an interactive CLI
-
-Useful docs:
-  - Vector store search: https://python.langchain.com/docs/how_to/vectorstores/
-  - HuggingFace pipelines: https://python.langchain.com/docs/integrations/llms/huggingface_pipelines/
-"""
-
 import os
+import sys
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from src.knowledge_base import build_knowledge_base
 
@@ -58,52 +45,72 @@ Answer:"""
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TODO 1: Implement ask_question
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def ask_question(vector_store, llm, question: str) -> dict:
+def ask_question(vector_store, llm, question: str) -> dict[str, str | list[str]]:
     """Retrieve relevant chunks and generate an answer.
-
-    Steps:
-      1. Use vector_store.similarity_search(question, k=3) to get
-         the top 3 most relevant document chunks.
-      2. Combine the chunk text into a single context string.
-         (Hint: each chunk has a .page_content attribute)
-      3. Format the PROMPT_TEMPLATE with the context and question.
-      4. Pass the formatted prompt to llm(...) and extract the
-         generated text from the result.
 
     Args:
         vector_store: FAISS vector store from knowledge_base.py
         llm: Callable from get_llm()
         question: The user's question string
-
     Returns:
         dict with two keys:
             "answer"  -> str: the generated answer
             "sources" -> list[str]: the chunk texts that were retrieved
     """
-    # TODO: implement this (~6-8 lines)
-    raise NotImplementedError("TODO 1: Implement ask_question")
+
+    docs = vector_store.similarity_search(question, k=3)
+    sources: list[str] = [doc.page_content for doc in docs]
+
+    context = "\n\n".join(sources)
+    prompt = PROMPT_TEMPLATE.format(context=context, question=question)
+    
+    result = llm(prompt)
+    answer = result[0]["generated_text"]
+
+    if not answer.strip():
+        answer = "No answer was generated for that question."
+
+    return {"answer": answer, "sources": sources}
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TODO 2: Complete the interactive loop
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def main():
+def main() -> None:
     """Interactive Q&A loop.
-
-    Steps:
-      1. Build the knowledge base using build_knowledge_base()
-         with the data/ directory path.
-      2. Load the LLM using get_llm().
-      3. Start a loop that:
-         - Prompts the user for a question with input()
-         - Exits if they type "quit"
-         - Calls ask_question() with their input
-         - Prints the retrieved sources and the answer
     """
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    query: str | None = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == "--query" else None
 
-    # TODO: implement this (~10-12 lines)
-    raise NotImplementedError("TODO 2: Complete the interactive loop")
+    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    #Error handling for missing file
+    if not os.path.isdir(data_dir):
+        sys.exit(f"No data directory found at {os.path.abspath(data_dir)}")
+    if not any(f.endswith(".txt") for _, _, files in os.walk(data_dir) for f in files):
+        sys.exit(f"No .txt documents found in {os.path.abspath(data_dir)}")
+
+    vector_store = build_knowledge_base(data_dir)
+    llm = get_llm()
+
+    if not query:
+        print("Ask a question about our services, pricing, or process.")
+        print("Type 'quit' to exit.\n")
+
+    while True:
+        question = query or input("> ").strip()
+        if question == "quit":
+            break
+        if not question:
+            continue
+
+        result = ask_question(vector_store, llm, question)
+
+        print("\nSources:")
+        for i, source in enumerate(result["sources"], 1):
+            print(f"  {i}. {' '.join(source.split())}")
+        print(f"\nAnswer: {result['answer']}\n")
+
+        if query:
+            break
 
 
 if __name__ == "__main__":
